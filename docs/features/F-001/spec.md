@@ -3,7 +3,7 @@ id: F-001
 title: Project Foundation
 type: chore          # feature | refactor | bugfix | chore
 system: cipherglass
-status: draft
+status: in_progress
 area: foundation
 owners:
   - Lou Harwood
@@ -24,7 +24,7 @@ adrs:
 Set up the Rust workspace that every later v0 feature builds on: a set of
 crates whose dependency graph enforces the parser adapter boundary, a
 `cipherglass` binary that starts and reports its version, workspace-wide lint
-and safety settings, a test harness with a fixture directory, and CI. F-001
+and safety settings, a test harness with a fixture directory, and a local check script. F-001
 adds no reconnaissance behavior. Its job is to make the architectural rules in
 `docs/system-overview.md` hard to break by accident before any parser or
 analyzer code exists.
@@ -78,6 +78,7 @@ analyzer code exists.
 ```
 Cargo.toml                 virtual workspace manifest
 Cargo.lock                 committed (the workspace ships a binary)
+deny.toml                  cargo-deny policy
 rustfmt.toml
 crates/
   cipherglass-core/        Cipherglass-owned types: artifact, location, evidence, finding
@@ -89,7 +90,7 @@ crates/
     tests/cli.rs           CLI skeleton test
 tests/fixtures/README.md   fixture policy and layout
 docs/adrs/ADR-0001-crate-layout.md
-.github/workflows/ci.yml
+scripts/check.sh           runs every check locally
 ```
 
 - `[workspace.package]` sets `version = "0.1.0"`, `edition = "2024"`,
@@ -117,8 +118,8 @@ single public surface.
 
 | Crate | Kind | Dependency | Purpose |
 |-------|------|------------|---------|
-| `cipherglass-cli` | normal | `clap` 4 (feature `derive`) | Argument parsing |
-| `cipherglass` | dev | `serde_json` 1 | Parsing `cargo metadata` output in the architecture test |
+| `cipherglass-cli` | normal | `clap` `=4.6.7` (feature `derive`; exact pin) | Argument parsing |
+| `cipherglass` | dev | `serde_json` `=1.0.151` (exact pin) | Parsing `cargo metadata` output in the architecture test |
 
 Later features add entries through their own contracts. A JavaScript engine
 or runtime (anything that can execute JavaScript) may never be approved
@@ -169,7 +170,7 @@ or runtime (anything that can execute JavaScript) may never be approved
 - `[workspace.lints.rust] unsafe_code = "forbid"`, inherited by every crate
   through `[lints] workspace = true`. Cipherglass parses untrusted input
   (REQ-022), so memory safety is non-negotiable in our own code.
-- Clippy runs with `-D warnings` in CI.
+- Clippy runs with `-D warnings` in `scripts/check.sh`.
 - `rustfmt.toml` sets `edition = "2024"` and nothing else.
 
 ### Test harness and fixture policy
@@ -185,21 +186,34 @@ or runtime (anything that can execute JavaScript) may never be approved
   `env!("CARGO_BIN_EXE_cipherglass")` and checks every CLI skeleton behavior
   above. It needs no extra test dependency.
 
-### CI
+### Local checks (no CI yet)
 
-`.github/workflows/ci.yml`:
+Nothing runs automatically on GitHub for now. There is no `.github/`
+directory. `scripts/check.sh` runs every check locally and stops at the first
+failure:
 
-- Triggers: `push` and `pull_request`.
-- `permissions: contents: read`.
-- Runs on `ubuntu-latest`. The toolchain is installed with `rustup` (stable,
-  with `rustfmt` and `clippy` components), not a third-party action.
-- `actions/checkout` is pinned by full commit SHA, with the version in a
-  comment.
-- Steps:
-  1. `cargo fmt --all --check`
-  2. `cargo build --workspace --locked`
-  3. `cargo clippy --workspace --all-targets --locked -- -D warnings`
-  4. `cargo test --workspace --locked`
+1. `cargo fmt --all --check`
+2. `cargo build --workspace --locked`
+3. `cargo clippy --workspace --all-targets --locked -- -D warnings`
+4. `cargo test --workspace --locked`
+5. `cargo deny --locked check`, against `deny.toml`: RustSec advisories and
+   yanked crates are denied; licenses are limited to Apache-2.0, MIT and
+   Unicode-3.0; crates.io is the only source; known JavaScript engines
+   (`boa_engine`, `v8`, `deno_core`, `rquickjs`, `quickjs-rs`, `mozjs`) are
+   banned anywhere in the dependency tree (REQ-023).
+6. `cargo audit`. This overlaps cargo-deny's advisory check, and the overlap
+   is accepted as a second opinion.
+
+- The script names the exact tool versions to install: `cargo-deny` 0.19.8
+  and `cargo-audit` 0.22.2 (`cargo install --locked`).
+- Steps 5 and 6 fetch the RustSec advisory database over the network. That
+  is developer tooling, not Cipherglass runtime behavior, so REQ-140 to
+  REQ-142 do not apply.
+- New advisories appear without any code change, so run the script before
+  every commit, not only when dependencies change.
+- Direct third-party dependencies use exact (`=`) version pins. Upgrades are
+  deliberate, reviewed changes.
+- Adding GitHub Actions CI later is a separate, explicit decision.
 
 ### ADR-0001
 
@@ -235,10 +249,11 @@ or runtime (anything that can execute JavaScript) may never be approved
 - [ ] AC-7 The architecture test passes on the real workspace, and its unit tests show it detects a forbidden workspace edge, an unapproved third-party dependency, a forbidden dev-dependency edge, and an unclassified crate.
 - [ ] AC-8 Every crate has `[lints] workspace = true`, and the workspace sets `unsafe_code = "forbid"`.
 - [ ] AC-9 `docs/adrs/ADR-0001-crate-layout.md` exists and covers the four points in the ADR-0001 section.
-- [ ] AC-10 CI runs the checks in AC-1 to AC-3 on push and pull request, with read-only permissions and SHA-pinned actions.
+- [ ] AC-10 `scripts/check.sh` runs the checks in AC-1 to AC-3 and AC-14, and exits non-zero on the first failure. No `.github/` directory exists.
 - [ ] AC-11 `tests/fixtures/README.md` states the fixture policy.
 - [ ] AC-12 Every crate inherits `publish = false` (checked by the architecture test through the `publish` field of `cargo metadata`).
 - [ ] AC-13 `cipherglass --help` with stdout closed exits 2 without panicking.
+- [ ] AC-14 `cargo deny --locked check` and `cargo audit` pass.
 
 # Implementation Notes
 
@@ -255,7 +270,7 @@ or runtime (anything that can execute JavaScript) may never be approved
 
 - Q1 (closed): Five crates, or fewer? — Five. Merging `cipherglass-graphql`
   into the facade would lose the compiler-enforced boundary.
-- Q2 (closed): Declare an MSRV (`rust-version`) now? — No. Revisit when a CI
-  job can test it; an untested MSRV is a false promise.
+- Q2 (closed): Declare an MSRV (`rust-version`) now? — No. Revisit when an
+  MSRV check exists; an untested MSRV is a false promise.
 - Q3 (closed): Where does the architecture test live? — In
   `crates/cipherglass/tests/`. No `xtask` until there is a second task.

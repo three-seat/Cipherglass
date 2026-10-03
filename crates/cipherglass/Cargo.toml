@@ -1,0 +1,19 @@
+[package]
+name = "cipherglass"
+description = "Static security reconnaissance of deployed client files."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cipherglass-core = { path = "../cipherglass-core" }
+cipherglass-js = { path = "../cipherglass-js" }
+cipherglass-graphql = { path = "../cipherglass-graphql" }
+
+[dev-dependencies]
+serde_json = "=1.0.151"
