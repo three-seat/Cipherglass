@@ -1,0 +1,117 @@
+schema_version: 1
+
+metadata:
+  id: "F-XXX"
+  title: "<TITLE>"
+  status: "draft"   # draft | in_progress | implemented | deprecated
+  critical: true
+
+summary: |
+  TODO: 2-4 lines describing the feature and why it is critical.
+
+scope:
+  product: "cipherglass"
+  area: "TODO: choose one of: foundation | discovery | parser-adapter | evidence | analyzer | finding | exporter | cli | docs"
+  pipeline_stages: []   # e.g. ["parser-adapter", "evidence"]
+
+requirements:
+  system: []          # REQ IDs from docs/system-overview.md this feature implements
+  high_level: []
+  low_level: []
+
+assumptions:
+  - id: "A-001"
+    text: "Input artifacts are local files; Cipherglass does not fetch remote content in v0."
+  - id: "A-002"
+    text: >
+      Input artifacts may be malformed, minified, very large, or deliberately
+      hostile. Nothing about their content is trusted.
+
+preconditions:
+  - id: "P-001"
+    text: "TODO: state what must be true before this feature runs."
+
+impact:
+  security:
+    confidentiality: "low"   # low | medium | high
+    integrity: "low"         # low | medium | high
+    availability: "low"      # low | medium | high
+    rationale: "TODO: explain the impact if this feature is wrong or abused (e.g. by a hostile input artifact)."
+  privacy:
+    pii_involved: false
+    rationale: ""
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+  constraints:
+    - "Artifact content is untrusted input and is never executed (REQ-022, REQ-023)."
+    - "Third-party parser types do not cross the parser adapter boundary (REQ-041 to REQ-044)."
+    - "Analyzers consume only Cipherglass evidence (REQ-111, REQ-112)."
+    - "Findings and their order are deterministic for identical input (REQ-004, REQ-005)."
+    - "A single-file failure is recorded and does not halt the pipeline (REQ-021)."
+    - "No network calls (REQ-140 to REQ-142)."
+
+# Omit this section if the feature has no CLI surface (library-only).
+cli:
+  command: ""
+  args: []
+  flags: []
+  description: ""
+  exit_codes:
+    - code: 0
+      meaning: "Success."
+    - code: 1
+      meaning: "Usage or precondition failure."
+    - code: 2
+      meaning: "Underlying IO failure."
+
+library:
+  public_api: []      # Cipherglass-owned types and functions this feature exposes
+
+behavior:
+  steps: []
+
+logic:
+  invariants: []
+  error_conditions: []
+
+filesystem:
+  reads_paths: []        # inputs this feature reads (e.g. target directory)
+  writes_paths: []       # outputs this feature writes; only explicit destinations (REQ-085)
+  must_not_modify: []    # paths this feature must never touch (e.g. analyzed artifacts)
+
+dependencies:
+  crates: []          # name, purpose, and which stage it is confined to
+
+verification:
+  strategy: ["unit", "integration"]
+  fixtures: []        # test fixture files or directories, including malformed/hostile samples
+  test_cases: []
+  coverage_expectations:
+    code: "statement"
+    notes: "Hit key branches, especially failure paths and malformed input."
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, commands, and invariants."
+    - "Every requirements.system entry is traced to a test."
+    - "Threat and impact assessment is accurate."
+    - "Invariants are enforced in code and covered by tests."
+    - "No third-party parser types leak past the parser adapter."
+    - "Output is deterministic across repeated runs."
+    - "No new crate dependencies unless explicitly approved."
+    - "Every writes_paths entry has a justified reason."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties."
+  - "Do not add dependencies unless explicitly allowed in this contract."
+  - "Do not modify docs/system-overview.md, ADRs, or templates."
+  - "Every writes_paths entry must include a justified reason."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."
