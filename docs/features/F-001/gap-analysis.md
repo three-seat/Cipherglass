@@ -53,7 +53,7 @@ obviously workable.
 | 1  | H | **The contract contradicts itself.** `ai_instructions` says "Do not modify … ADRs", but `writes_paths` creates ADR-0001. An implementer following the instructions literally would skip AC-9. | Instruction now reads: do not modify *existing* ADRs; creating ADR-0001 is in scope. |
 | 2  | H | **T-9 (stdout closed → exit 2) would have been flaky.** The natural test (`Stdio::piped()`, then drop the child's stdout after spawning) races: the help text fits in the pipe buffer, so the write usually succeeds and the binary exits 0. | Probed: create the pipe with `std::io::pipe()` (stable since 1.87) and drop the read end *before* spawning. The write then fails reliably, giving exit 2. The mechanism is now in T-9. It also requires the binary to write through `writeln!` on a handled `Result`, never `println!`. |
 | 3  | M | **The `publish = false` check would have been wrong.** `cargo metadata` reports it as `"publish": []`, not `false`. A check for `false` or `null` would pass or fail for the wrong reason. | Probed and confirmed. T-1 now says "`publish` is an empty array." |
-| 4  | M | **AC-1 (`cargo build`) had no direct check.** It was mapped to "implied by clippy/test". | Added an explicit `cargo build --workspace --locked` CI step, and mapped AC-1 to it. |
+| 4  | M | **AC-1 (`cargo build`) had no direct check.** It was mapped to "implied by clippy/test". | Added an explicit `cargo build --workspace --locked` CI step, and mapped AC-1 to it. *Superseded: the step now lives in `scripts/check.sh` (see "Implementation changes").* |
 | 5  | M | **Stdout-failure behavior had no acceptance criterion in the spec.** It appeared only in the CLI section, so the spec's AC list was weaker than the contract's tests. | Added spec AC-13. |
 | 6  | M | **Dependency versions were unpinned.** The contract approved `clap` and `serde_json` without a major version, so a future major bump would pass without review. | `clap` `4`, `serde_json` `1`. |
 | 7  | L | **Wrong crate name in `prohibited_always`.** `rusty_v8` is published as `v8`. | Corrected. |
@@ -95,3 +95,24 @@ Decided during implementation, after the analyses above:
   round 1 gap #8 (CI supply-chain hardening) and the weekly scheduled
   advisory run. Advisories are now caught only when someone runs the script,
   so run it before every commit.
+
+## Close-out changes (2026-10-07)
+
+Found while checking every gap against the code before closing F-001:
+
+- **`print!`/`println!` denied by clippy.** T-9 only proves `--help` exits 2
+  on a closed stdout. A later `println!` (e.g. when F-002+ prints findings)
+  would panic with exit 101 and T-9 would not notice. `print_stdout` and
+  `print_stderr` are now `deny` in `[workspace.lints.clippy]`, so
+  `scripts/check.sh` rejects them. Checked by temporarily adding `println!`
+  and `eprintln!` to `main.rs` (clippy failed on both, then reverted).
+- **Contract T-9 wording.** It required `writeln!`, but the binary prints
+  through clap's `Error::print`, which returns a handled `io::Result`. The
+  wording now states the actual rule: all output goes through a handled
+  `io::Result`.
+- **Untracked tests recorded.** `approval_is_specific_to_dependency_kind` and
+  `detects_publishable_crate` existed in `architecture.rs` but not in the
+  contract. Added as T-11 and T-12.
+- **Round 2 #10 checked.** The contract's `architecture.crates` and
+  `dependencies.approved` match `WORKSPACE` and `APPROVED` in
+  `architecture.rs`.

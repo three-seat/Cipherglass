@@ -17,3 +17,9 @@ publish = false
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# print!/println! panic when stdout is closed; write through a handled
+# io::Result instead (exit 2 on failure).
+[workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"

@@ -6,7 +6,7 @@ system: cipherglass
 status: in_progress
 area: foundation
 owners:
-  - Lou Harwood
+  - three_seat
 created_at: 2026-10-02
 contract: docs/features/F-001/contract.yaml
 requirements:        # system-overview REQ IDs this feature implements (see Traceability)
@@ -160,7 +160,8 @@ or runtime (anything that can execute JavaScript) may never be approved
 - `cipherglass` with no arguments prints usage to stderr and exits 1.
 - An unknown flag or subcommand prints an error and usage to stderr and exits 1.
 - If writing to stdout fails (e.g. closed pipe), the binary exits 2 without
-  panicking.
+  panicking. Every write goes through a handled `io::Result`; `print!` and
+  `println!` (which panic on write failure) are denied by clippy.
 - F-001 defines no subcommands. They arrive with F-002 to F-005.
 - The binary target sets `doc = false` to avoid a `cargo doc` output
   collision with the `cipherglass` library.
@@ -171,6 +172,9 @@ or runtime (anything that can execute JavaScript) may never be approved
   through `[lints] workspace = true`. Cipherglass parses untrusted input
   (REQ-022), so memory safety is non-negotiable in our own code.
 - Clippy runs with `-D warnings` in `scripts/check.sh`.
+- `[workspace.lints.clippy]` sets `print_stdout = "deny"` and
+  `print_stderr = "deny"`. `print!`/`println!` panic when stdout is closed, so
+  all output goes through a handled `io::Result` (exit 2 on failure).
 - `rustfmt.toml` sets `edition = "2024"` and nothing else.
 
 ### Test harness and fixture policy
@@ -247,7 +251,7 @@ failure:
 - [ ] AC-5 `cipherglass --help` prints usage to stdout and exits 0.
 - [ ] AC-6 `cipherglass` with no arguments, and with an unknown flag, exits 1 and writes usage to stderr.
 - [ ] AC-7 The architecture test passes on the real workspace, and its unit tests show it detects a forbidden workspace edge, an unapproved third-party dependency, a forbidden dev-dependency edge, and an unclassified crate.
-- [ ] AC-8 Every crate has `[lints] workspace = true`, and the workspace sets `unsafe_code = "forbid"`.
+- [ ] AC-8 Every crate has `[lints] workspace = true`, and the workspace sets `unsafe_code = "forbid"` and denies clippy's `print_stdout` and `print_stderr`.
 - [ ] AC-9 `docs/adrs/ADR-0001-crate-layout.md` exists and covers the four points in the ADR-0001 section.
 - [ ] AC-10 `scripts/check.sh` runs the checks in AC-1 to AC-3 and AC-14, and exits non-zero on the first failure. No `.github/` directory exists.
 - [ ] AC-11 `tests/fixtures/README.md` states the fixture policy.

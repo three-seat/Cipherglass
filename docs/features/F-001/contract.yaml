@@ -32,7 +32,7 @@ requirements:
     - id: "LL-1"
       text: "Workspace version is 0.1.0, edition 2024, license Apache-2.0, publish = false, inherited by all crates."
     - id: "LL-2"
-      text: "unsafe_code = forbid at workspace level; every crate sets [lints] workspace = true."
+      text: "unsafe_code = forbid and clippy print_stdout/print_stderr = deny at workspace level; every crate sets [lints] workspace = true."
     - id: "LL-3"
       text: "The architecture check is a pure function over (declared deps, workspace table, approved lists) that returns violations."
     - id: "LL-4"
@@ -259,24 +259,31 @@ verification:
       text: >
         cli.rs: create a pipe with std::io::pipe(), drop the read end before
         spawning, pass the write end as stdout, and run --help. Expect exit 2
-        and no panic message on stderr. The binary must write via writeln! on
-        a handled Result, never println!.
+        and no panic message on stderr. All stdout writes go through a handled
+        io::Result (clap's Error::print today); print!/println! are denied by
+        clippy (LL-2), so later output paths keep this behavior.
     - id: "T-10"
       covers: ["ERR-1"]
       text: "Checker unit test: malformed metadata JSON yields an error, not an empty violation list."
+    - id: "T-11"
+      covers: ["LL-3", "INV-2"]
+      text: "Checker unit test: an approval is specific to its dependency kind (serde_json approved as dev is reported when declared as normal)."
+    - id: "T-12"
+      covers: ["LL-1", "INV-5"]
+      text: "Checker unit test: a publishable crate is reported."
   coverage_expectations:
     code: "statement"
     notes: "Every violation branch of the checker is hit by a synthetic test."
 
 acceptance_criteria_map:
   AC-1: "scripts/check.sh: cargo build --workspace --locked"
-  AC-2: "T-1..T-10"
+  AC-2: "T-1..T-12"
   AC-3: "scripts/check.sh: fmt and clippy"
   AC-4: "T-6"
   AC-5: "T-7"
   AC-6: "T-8"
   AC-7: "T-1..T-5"
-  AC-8: "INV-4; review of each crate's Cargo.toml for [lints] workspace = true"
+  AC-8: "INV-4; LL-2; review of each crate's Cargo.toml for [lints] workspace = true"
   AC-13: "T-9"
   LL-6: "Review of crates/cipherglass-cli/Cargo.toml (doc = false)"
   AC-9: "Review of ADR-0001"
