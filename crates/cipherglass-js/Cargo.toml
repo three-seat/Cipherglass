@@ -1,0 +1,14 @@
+[package]
+name = "cipherglass-js"
+description = "JavaScript parser adapter for Cipherglass."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cipherglass-core = { path = "../cipherglass-core" }

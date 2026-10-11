@@ -1,0 +1,319 @@
+schema_version: 1
+
+metadata:
+  id: "F-001"
+  title: "Project Foundation"
+  status: "implemented"   # draft | in_progress | implemented | deprecated
+  critical: true    # sets the boundary every later feature relies on
+
+summary: |
+  Create the Rust workspace whose crate split and automated architecture test
+  enforce the parser adapter boundary, plus a `cipherglass` binary skeleton,
+  workspace lint/safety settings, test harness, fixture policy, ADR-0001, and
+  a local check script. No reconnaissance behavior. Nothing runs on GitHub.
+
+scope:
+  product: "cipherglass"
+  area: "foundation"
+  pipeline_stages: []   # creates the crates for every stage; implements none
+
+requirements:
+  system: ["REQ-002", "REQ-041", "REQ-043", "REQ-111", "REQ-132"]
+  high_level:
+    - id: "HL-1"
+      text: "Workspace crate dependencies follow the allowed-direction table for every dependency kind."
+    - id: "HL-2"
+      text: "Each crate's direct third-party dependencies are limited to its approved list."
+    - id: "HL-3"
+      text: "The `cipherglass` binary provides --version and --help, and rejects bad usage with exit code 1."
+    - id: "HL-4"
+      text: "scripts/check.sh runs formatting, build, lint, test, cargo-deny and cargo-audit locally, and stops at the first failure."
+  low_level:
+    - id: "LL-1"
+      text: "Workspace version is 0.1.0, edition 2024, license Apache-2.0, publish = false, inherited by all crates."
+    - id: "LL-2"
+      text: "unsafe_code = forbid and clippy print_stdout/print_stderr = deny at workspace level; every crate sets [lints] workspace = true."
+    - id: "LL-3"
+      text: "The architecture check is a pure function over (declared deps, workspace table, approved lists) that returns violations."
+    - id: "LL-4"
+      text: "A workspace crate missing from the table is a violation."
+    - id: "LL-5"
+      text: "Stdout write failure exits 2 without panicking."
+    - id: "LL-6"
+      text: "Binary target sets doc = false."
+
+assumptions:
+  - id: "A-001"
+    text: "Input artifacts are local files; Cipherglass does not fetch remote content in v0."
+  - id: "A-002"
+    text: >
+      Input artifacts may be malformed, minified, very large, or deliberately
+      hostile. Nothing about their content is trusted. (F-001 processes no
+      artifacts; this assumption shapes the safety settings it establishes.)
+  - id: "A-003"
+    text: "A stable Rust toolchain that supports edition 2024 is installed via rustup."
+  - id: "A-004"
+    text: "The repository is hosted on GitHub (origin: three-seat/Cipherglass), but nothing runs there automatically. All checks are local."
+
+preconditions:
+  - id: "P-001"
+    text: "The repository contains no Cargo workspace yet (no Cargo.toml at the root or under crates/)."
+
+impact:
+  security:
+    confidentiality: "medium"
+    integrity: "medium"
+    availability: "low"
+    rationale: >
+      A weak boundary check would let later features leak parser types into
+      analyzers or pull in unsafe/executing dependencies unnoticed (integrity).
+      A missing fixture policy could lead to client JavaScript being committed
+      to a public repository (confidentiality). Unpinned or unaudited dependencies
+      are a supply-chain risk.
+  privacy:
+    pii_involved: false
+    rationale: "No artifacts are processed. The fixture policy forbids client-derived material."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/features/F-001/spec.md"
+    - "docs/adrs/ADR-0001-crate-layout.md"   # created by this feature
+  constraints:
+    - "Artifact content is untrusted input and is never executed (REQ-022, REQ-023)."
+    - "Third-party parser types do not cross the parser adapter boundary (REQ-041 to REQ-044)."
+    - "Analyzers consume only Cipherglass evidence (REQ-111, REQ-112)."
+    - "Findings and their order are deterministic for identical input (REQ-004, REQ-005)."
+    - "A single-file failure is recorded and does not halt the pipeline (REQ-021)."
+    - "No network calls (REQ-140 to REQ-142). The architecture test runs cargo metadata with --offline."
+  crates:
+    - name: "cipherglass-core"
+      path: "crates/cipherglass-core"
+      kind: "lib"
+      responsibility: "Cipherglass-owned types: artifact, location, evidence, finding."
+      allowed_workspace_deps: []
+    - name: "cipherglass-js"
+      path: "crates/cipherglass-js"
+      kind: "lib"
+      responsibility: "JavaScript parser adapter. The only crate allowed a JS parser dependency."
+      allowed_workspace_deps: ["cipherglass-core"]
+    - name: "cipherglass-graphql"
+      path: "crates/cipherglass-graphql"
+      kind: "lib"
+      responsibility: "GraphQL analyzer."
+      allowed_workspace_deps: ["cipherglass-core"]
+    - name: "cipherglass"
+      path: "crates/cipherglass"
+      kind: "lib"
+      responsibility: "Library facade: discovery, pipeline wiring, exporters."
+      allowed_workspace_deps: ["cipherglass-core", "cipherglass-js", "cipherglass-graphql"]
+    - name: "cipherglass-cli"
+      path: "crates/cipherglass-cli"
+      kind: "bin"
+      binary_name: "cipherglass"
+      responsibility: "Command-line interface."
+      allowed_workspace_deps: ["cipherglass"]
+  dependency_rule_applies_to: ["normal", "dev", "build"]
+  known_limitations:
+    - id: "KL-1"
+      text: >
+        Re-export of cipherglass-js items from the cipherglass facade (REQ-044)
+        is not mechanically checked. It is enforced by review until F-003
+        revisits it.
+
+cli:
+  command: "cipherglass"
+  args: []
+  flags: ["--help", "-h", "--version", "-V"]
+  description: "Binary skeleton. No subcommands in F-001."
+  exit_codes:
+    - code: 0
+      meaning: "Success (--help, --version)."
+    - code: 1
+      meaning: "Usage failure: no arguments, unknown flag, or unknown subcommand."
+    - code: 2
+      meaning: "Underlying IO failure (e.g. stdout write failure)."
+
+library:
+  public_api: []      # all library crates are empty skeletons in F-001
+
+behavior:
+  steps:
+    - "`cipherglass --version` writes `cipherglass 0.1.0\\n` to stdout; exit 0."
+    - "`cipherglass --help` writes usage to stdout; the first line names the tool and its purpose; exit 0."
+    - "`cipherglass` (no args) writes usage to stderr; exit 1."
+    - "`cipherglass --bogus` or `cipherglass bogus` writes an error and usage to stderr; exit 1."
+    - "Any stdout write failure exits 2 with no panic."
+
+logic:
+  invariants:
+    - id: "INV-1"
+      text: "No workspace crate depends, by any dependency kind, on a workspace crate outside its allowed_workspace_deps."
+    - id: "INV-2"
+      text: "No workspace crate has a direct third-party dependency outside dependencies.approved for that crate and kind."
+    - id: "INV-3"
+      text: "Every workspace crate appears in architecture.crates."
+    - id: "INV-4"
+      text: "No crate contains unsafe code (enforced by the compiler through forbid)."
+    - id: "INV-5"
+      text: "No crate is publishable."
+    - id: "INV-6"
+      text: "No dependency capable of executing JavaScript is ever approved. Known engines are banned in deny.toml, so this holds for transitive dependencies too."
+  error_conditions:
+    - id: "ERR-1"
+      condition: "Architecture test cannot run cargo metadata (CARGO unset, non-zero exit, or unparsable JSON)."
+      handling: "The test fails with a message naming the cause. It never passes vacuously. Only the unparsable-JSON case has a dedicated test (T-10); the others fail through expect/assert."
+
+filesystem:
+  reads_paths:
+    - path: "Cargo.toml, crates/*/Cargo.toml"
+      reason: "The architecture test reads the dependency declarations through cargo metadata."
+  writes_paths:
+    - path: "Cargo.toml"
+      reason: "Workspace manifest."
+    - path: "Cargo.lock"
+      reason: "Committed lockfile for a workspace that ships a binary."
+    - path: "deny.toml"
+      reason: "cargo-deny policy: advisories, licenses, sources, and banned JS engines."
+    - path: "rustfmt.toml"
+      reason: "Formatting edition."
+    - path: "crates/**"
+      reason: "The five crate skeletons, architecture test, and CLI test."
+    - path: "tests/fixtures/README.md"
+      reason: "Fixture policy and layout."
+    - path: "docs/adrs/ADR-0001-crate-layout.md"
+      reason: "Records the crate layout decision."
+    - path: "scripts/check.sh"
+      reason: "Runs every check locally. Replaces CI for now."
+    - path: "README.md"
+      reason: "Add build and test commands. The existing one-line description is kept."
+  must_not_modify:
+    - "docs/system-overview.md"
+    - "docs/templates/**"
+    - "LICENSE"
+    - ".gitignore"
+    - ".github/**"   # no automated GitHub workflows until explicitly decided
+
+dependencies:
+  approved:
+    - crate: "cipherglass-cli"
+      kind: "normal"
+      name: "clap"
+      version: "=4.6.7"   # exact pin; upgrades are deliberate, reviewed changes
+      features: ["derive"]
+      purpose: "Argument parsing. Its default usage-error exit code (2) must be mapped to 1."
+    - crate: "cipherglass"
+      kind: "dev"
+      name: "serde_json"
+      version: "=1.0.151"   # exact pin; upgrades are deliberate, reviewed changes
+      purpose: "Parse cargo metadata output in the architecture test."
+  prohibited_always:
+    - "Any JavaScript engine or runtime (e.g. boa_engine, deno_core, v8 (rusty_v8), quickjs bindings)."
+
+checks:
+  script: "scripts/check.sh"
+  runs: "locally only; there is no GitHub Actions workflow"
+  steps:
+    - "cargo fmt --all --check"
+    - "cargo build --workspace --locked"
+    - "cargo clippy --workspace --all-targets --locked -- -D warnings"
+    - "cargo test --workspace --locked"
+    - "cargo deny --locked check"
+    - "cargo audit"
+  tools:
+    - "cargo-deny 0.19.8 (cargo install --locked)"
+    - "cargo-audit 0.22.2 (cargo install --locked)"
+  policy: "deny.toml: RustSec advisories and yanked crates denied; licenses limited to Apache-2.0, MIT, Unicode-3.0; crates.io only; JavaScript engines banned."
+
+verification:
+  strategy: ["unit", "integration"]
+  fixtures:
+    - "tests/fixtures/README.md (policy only; no fixture data in F-001)"
+  test_cases:
+    - id: "T-1"
+      covers: ["HL-1", "HL-2", "INV-1", "INV-2", "INV-3", "INV-5"]
+      text: "architecture.rs: the real workspace has zero violations, and every crate's metadata `publish` field is an empty array (how cargo reports publish = false)."
+    - id: "T-2"
+      covers: ["LL-3", "INV-1"]
+      text: "Checker unit test: synthetic cipherglass-graphql -> cipherglass-js normal edge is reported."
+    - id: "T-3"
+      covers: ["LL-3", "INV-1"]
+      text: "Checker unit test: the same forbidden edge, declared only as a dev-dependency, is reported."
+    - id: "T-4"
+      covers: ["LL-3", "INV-2"]
+      text: "Checker unit test: an unapproved third-party dependency is reported."
+    - id: "T-5"
+      covers: ["LL-4", "INV-3"]
+      text: "Checker unit test: a workspace crate absent from the table is reported."
+    - id: "T-6"
+      covers: ["HL-3"]
+      text: "cli.rs: --version prints `cipherglass 0.1.0` to stdout, exit 0."
+    - id: "T-7"
+      covers: ["HL-3"]
+      text: "cli.rs: --help prints usage to stdout, exit 0."
+    - id: "T-8"
+      covers: ["HL-3"]
+      text: "cli.rs: no args, an unknown flag, and an unknown subcommand each exit 1 with usage on stderr and empty stdout."
+    - id: "T-9"
+      covers: ["LL-5"]
+      text: >
+        cli.rs: create a pipe with std::io::pipe(), drop the read end before
+        spawning, pass the write end as stdout, and run --help. Expect exit 2
+        and no panic message on stderr. All stdout writes go through a handled
+        io::Result (clap's Error::print today); print!/println! are denied by
+        clippy (LL-2), so later output paths keep this behavior.
+    - id: "T-10"
+      covers: ["ERR-1"]
+      text: "Checker unit test: malformed metadata JSON yields an error, not an empty violation list."
+    - id: "T-11"
+      covers: ["LL-3", "INV-2"]
+      text: "Checker unit test: an approval is specific to its dependency kind (serde_json approved as dev is reported when declared as normal)."
+    - id: "T-12"
+      covers: ["LL-1", "INV-5"]
+      text: "Checker unit test: a publishable crate is reported."
+  coverage_expectations:
+    code: "statement"
+    notes: "Every violation branch of the checker is hit by a synthetic test."
+
+acceptance_criteria_map:
+  AC-1: "scripts/check.sh: cargo build --workspace --locked"
+  AC-2: "T-1..T-12"
+  AC-3: "scripts/check.sh: fmt and clippy"
+  AC-4: "T-6"
+  AC-5: "T-7"
+  AC-6: "T-8"
+  AC-7: "T-1..T-5"
+  AC-8: "INV-4; LL-2; review of each crate's Cargo.toml for [lints] workspace = true"
+  AC-13: "T-9"
+  LL-6: "Review of crates/cipherglass-cli/Cargo.toml (doc = false)"
+  AC-9: "Review of ADR-0001"
+  AC-10: "Review of scripts/check.sh; .github/ absent"
+  AC-14: "scripts/check.sh: cargo deny --locked check, cargo audit"
+  AC-11: "Review of tests/fixtures/README.md"
+  AC-12: "T-1"
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, commands, and invariants."
+    - "Every requirements.system entry is traced to a test."
+    - "Threat and impact assessment is accurate."
+    - "Invariants are enforced in code and covered by tests."
+    - "No third-party parser types leak past the parser adapter."
+    - "The facade does not re-export cipherglass-js items (KL-1)."
+    - "Output is deterministic across repeated runs."
+    - "No new crate dependencies unless explicitly approved."
+    - "architecture.crates and dependencies.approved match the tables in architecture.rs."
+    - "Every writes_paths entry has a justified reason."
+  status:
+    reviewed_by: "three_seat"
+    reviewed_at: "10-08-2026"
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties."
+  - "Do not add dependencies unless explicitly allowed in this contract."
+  - "Do not modify docs/system-overview.md, templates, or existing ADRs. Creating ADR-0001 is in scope."
+  - "Every writes_paths entry must include a justified reason."
+  - "If anything is ambiguous, implement the safest conservative behavior and reject rather than write."

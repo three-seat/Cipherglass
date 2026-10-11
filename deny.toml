@@ -1,0 +1,41 @@
+# cargo-deny configuration (F-001). Run: cargo deny check
+
+[graph]
+# Check with every feature enabled. With no `targets` listed, every platform
+# is checked.
+all-features = true
+
+[advisories]
+# RustSec advisory database. Any vulnerability, unmaintained or unsound
+# advisory fails the check unless listed in `ignore` with a reason.
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Must be compatible with Cipherglass's Apache-2.0 license.
+version = 2
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+confidence-threshold = 0.93
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path dependencies have no version; that is fine because nothing
+# is published (publish = false).
+allow-wildcard-paths = true
+# Anything that can execute JavaScript is never allowed (REQ-023, F-001 INV-6).
+deny = [
+    { crate = "boa_engine", reason = "JavaScript engine (REQ-023)" },
+    { crate = "v8", reason = "JavaScript engine (REQ-023)" },
+    { crate = "deno_core", reason = "JavaScript runtime (REQ-023)" },
+    { crate = "rquickjs", reason = "JavaScript engine (REQ-023)" },
+    { crate = "quickjs-rs", reason = "JavaScript engine (REQ-023)" },
+    { crate = "mozjs", reason = "JavaScript engine (REQ-023)" },
+]
+
+[sources]
+# Only crates.io; no git or alternative registries.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
