@@ -3,7 +3,7 @@ schema_version: 1
 metadata:
   id: "F-001"
   title: "Project Foundation"
-  status: "in_progress"   # draft | in_progress | implemented | deprecated
+  status: "implemented"   # draft | in_progress | implemented | deprecated
   critical: true    # sets the boundary every later feature relies on
 
 summary: |
@@ -306,8 +306,8 @@ reviews:
     - "architecture.crates and dependencies.approved match the tables in architecture.rs."
     - "Every writes_paths entry has a justified reason."
   status:
-    reviewed_by: ""
-    reviewed_at: ""
+    reviewed_by: "three_seat"
+    reviewed_at: "10-08-2026"
 
 ai_instructions:
   - "Treat this contract as the source of truth."

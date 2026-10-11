@@ -3,7 +3,7 @@ id: F-001
 title: Project Foundation
 type: chore          # feature | refactor | bugfix | chore
 system: cipherglass
-status: in_progress
+status: implemented
 area: foundation
 owners:
   - three_seat
@@ -244,20 +244,20 @@ failure:
 
 # Acceptance Criteria
 
-- [ ] AC-1 `cargo build --workspace --locked` succeeds from a clean checkout.
-- [ ] AC-2 `cargo test --workspace --locked` passes.
-- [ ] AC-3 `cargo fmt --all --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
-- [ ] AC-4 `cipherglass --version` prints `cipherglass 0.1.0` to stdout and exits 0.
-- [ ] AC-5 `cipherglass --help` prints usage to stdout and exits 0.
-- [ ] AC-6 `cipherglass` with no arguments, and with an unknown flag, exits 1 and writes usage to stderr.
-- [ ] AC-7 The architecture test passes on the real workspace, and its unit tests show it detects a forbidden workspace edge, an unapproved third-party dependency, a forbidden dev-dependency edge, and an unclassified crate.
-- [ ] AC-8 Every crate has `[lints] workspace = true`, and the workspace sets `unsafe_code = "forbid"` and denies clippy's `print_stdout` and `print_stderr`.
-- [ ] AC-9 `docs/adrs/ADR-0001-crate-layout.md` exists and covers the four points in the ADR-0001 section.
-- [ ] AC-10 `scripts/check.sh` runs the checks in AC-1 to AC-3 and AC-14, and exits non-zero on the first failure. No `.github/` directory exists.
-- [ ] AC-11 `tests/fixtures/README.md` states the fixture policy.
-- [ ] AC-12 Every crate inherits `publish = false` (checked by the architecture test through the `publish` field of `cargo metadata`).
-- [ ] AC-13 `cipherglass --help` with stdout closed exits 2 without panicking.
-- [ ] AC-14 `cargo deny --locked check` and `cargo audit` pass.
+- [x] AC-1 `cargo build --workspace --locked` succeeds from a clean checkout.
+- [x] AC-2 `cargo test --workspace --locked` passes.
+- [x] AC-3 `cargo fmt --all --check` and `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
+- [x] AC-4 `cipherglass --version` prints `cipherglass 0.1.0` to stdout and exits 0.
+- [x] AC-5 `cipherglass --help` prints usage to stdout and exits 0.
+- [x] AC-6 `cipherglass` with no arguments, and with an unknown flag, exits 1 and writes usage to stderr.
+- [x] AC-7 The architecture test passes on the real workspace, and its unit tests show it detects a forbidden workspace edge, an unapproved third-party dependency, a forbidden dev-dependency edge, and an unclassified crate.
+- [x] AC-8 Every crate has `[lints] workspace = true`, and the workspace sets `unsafe_code = "forbid"` and denies clippy's `print_stdout` and `print_stderr`.
+- [x] AC-9 `docs/adrs/ADR-0001-crate-layout.md` exists and covers the four points in the ADR-0001 section.
+- [x] AC-10 `scripts/check.sh` runs the checks in AC-1 to AC-3 and AC-14, and exits non-zero on the first failure. No `.github/` directory exists.
+- [x] AC-11 `tests/fixtures/README.md` states the fixture policy.
+- [x] AC-12 Every crate inherits `publish = false` (checked by the architecture test through the `publish` field of `cargo metadata`).
+- [x] AC-13 `cipherglass --help` with stdout closed exits 2 without panicking.
+- [x] AC-14 `cargo deny --locked check` and `cargo audit` pass.
 
 # Implementation Notes
 
