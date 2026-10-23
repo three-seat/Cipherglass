@@ -1,0 +1,8 @@
+feature_id: F-002
+events:
+- status: review
+  at: 2026-10-23T03:00:17Z
+  by: three_seat
+- status: done
+  at: 2026-10-23T03:07:48Z
+  by: three_seat

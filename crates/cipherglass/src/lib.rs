@@ -5,3 +5,10 @@
 //!
 //! Boundary: never re-export items from `cipherglass-js`. Only
 //! Cipherglass-owned types may cross this API (REQ-044). See ADR-0001.
+
+mod discovery;
+
+pub use cipherglass_core::Artifact;
+pub use discovery::{
+    Discovery, DiscoveryError, DiscoveryOptions, SkipReason, SkippedEntry, discover,
+};
