@@ -1,0 +1,330 @@
+schema_version: 1
+
+metadata:
+  id: "F-002"
+  title: "Artifact Discovery"
+  status: "implemented"   # draft | in_progress | implemented | deprecated
+  critical: true    # first code that touches untrusted, possibly hostile input (A-002)
+
+summary: |
+  Library-only discovery of `.js`, `.mjs` and `.cjs` regular files in a target
+  directory, returned as Cipherglass-owned `Artifact` values in a deterministic
+  order, with a record of every skipped entry and why. Metadata only: no file
+  is ever opened and no link below the target is followed. Critical because it
+  is the first stage to walk an untrusted directory tree.
+
+scope:
+  product: "cipherglass"
+  area: "discovery"
+  pipeline_stages: ["artifact"]
+
+requirements:
+  system: ["REQ-011", "REQ-010", "REQ-030", "REQ-004", "REQ-005", "REQ-022"]
+  high_level:
+    - id: "HL-1"
+      text: "`discover` returns every regular file under the target whose extension is exactly `js`, `mjs` or `cjs` and whose size is within the limit, as an `Artifact` with a path relative to the target."
+    - id: "HL-2"
+      text: "Every symlink, oversized matching file, non-regular matching file and unreadable entry below the target is recorded in `skipped` with a reason. Other files are ignored and not recorded."
+    - id: "HL-3"
+      text: "`artifacts` and `skipped` are each sorted by `Path` ordering, so identical trees give identical output (REQ-004a, REQ-005a)."
+    - id: "HL-4"
+      text: "Only a target-level failure returns `DiscoveryError`. A failure on any entry below the target is recorded and the walk continues."
+  low_level:
+    - id: "LL-1"
+      text: "Target: `fs::metadata(target)` (follows a target link, Q10). NotFound → `DiscoveryError::NotFound`; not a directory → `NotADirectory`; any other metadata error, or `fs::read_dir(target)` failing → `Unreadable`."
+    - id: "LL-2"
+      text: "The walk is iterative with an explicit stack of directories. No recursion."
+    - id: "LL-3"
+      text: "Entries are classified with `DirEntry::file_type()`. Size comes from `DirEntry::metadata()` and is read only for regular files with a matching extension. Neither follows symlinks on Unix."
+    - id: "LL-4"
+      text: "The extension test is `Path::extension()` compared exactly (case-sensitive) with `js`, `mjs`, `cjs`."
+    - id: "LL-5"
+      text: "Size within limit means `size <= options.max_file_size`. `DiscoveryOptions::default().max_file_size == 33_554_432` (32 MiB, Q3)."
+    - id: "LL-6"
+      text: "Listing one directory is a separate function that takes an iterator of `io::Result` entries. At the first `Err` it stops, keeps the entries already seen, and records the directory once as `Unreadable`. For the target the recorded path is empty."
+    - id: "LL-7"
+      text: "`Unreadable` carries `kind: io::ErrorKind` and `os_code: Option<i32>` (from `raw_os_error`), never `io::Error`."
+    - id: "LL-10"
+      text: "`Artifact`, `Discovery` and `SkippedEntry` are also `#[non_exhaustive]`. `Artifact::new(path, size)` is the only way to build an `Artifact` outside cipherglass-core, so a field added for a future artifact type (REQ-030) is not a breaking change."
+    - id: "LL-8"
+      text: "Every public output type derives `Debug, Clone, PartialEq, Eq`. `DiscoveryOptions`, `SkipReason` and `DiscoveryError` are `#[non_exhaustive]`. `DiscoveryError` implements `Display` (naming the target and the cause) and `std::error::Error`."
+    - id: "LL-9"
+      text: "Paths stay `PathBuf` from listing to output. No conversion through `str` or `to_string_lossy`."
+
+assumptions:
+  - id: "A-001"
+    text: "Input artifacts are local files; Cipherglass does not fetch remote content in v0."
+  - id: "A-002"
+    text: >
+      Input artifacts may be malformed, minified, very large, or deliberately
+      hostile. Nothing about their content is trusted. For F-002 this extends
+      to the shape of the tree: names, depth, links, special files and
+      permissions are all untrusted.
+  - id: "A-003"
+    text: "Development and tests run on Linux. Symlink, FIFO and permission tests are `cfg(unix)`; non-UTF-8 and path-length tests are `cfg(target_os = \"linux\")`."
+
+preconditions:
+  - id: "P-001"
+    text: "F-001 is implemented: the five-crate workspace, architecture test and scripts/check.sh exist and pass."
+
+impact:
+  security:
+    confidentiality: "low"
+    integrity: "medium"
+    availability: "medium"
+    rationale: >
+      Integrity: a discovery bug silently drops files, so later stages report
+      an incomplete picture with no sign anything is missing; this is why every
+      skip is recorded. Availability: a hostile tree can try to hang or exhaust
+      discovery with FIFOs, symlink loops, very deep or very wide trees, and
+      huge files. FIFOs and loops are handled by never opening files and never
+      following links; depth by the iterative walk and the OS path limit; huge
+      files by the size limit. Entry count is not capped (accepted, spec
+      Output). Confidentiality: only file metadata is read, and nothing leaves
+      the machine.
+  privacy:
+    pii_involved: false
+    rationale: "File names may be client-specific, but they are only returned to the local caller."
+
+architecture:
+  related_docs:
+    - "docs/system-overview.md"
+    - "docs/adrs/ADR-0001-crate-layout.md"
+    - "docs/features/F-002/spec.md"
+    - "docs/features/F-002/gap-analysis.md"
+  constraints:
+    - "Artifact content is untrusted input and is never executed (REQ-022, REQ-023). F-002 never even reads it."
+    - "Third-party parser types do not cross the parser adapter boundary (REQ-041 to REQ-044). F-002 uses no parser."
+    - "Output and its order are deterministic for identical input (REQ-004, REQ-005; ADR-0001 determinism convention)."
+    - "A single-entry failure is recorded and does not halt discovery (REQ-021)."
+    - "No network calls (REQ-140 to REQ-142)."
+    - "`Artifact` lives in cipherglass-core; the discovery function and its result types live in the cipherglass facade (ADR-0001, Q7)."
+  known_limitations:
+    - id: "KL-1"
+      text: "Bind-mount cycles are not detected (Q11). The OS path-length limit ends the walk, and the too-long directory is recorded as `Unreadable`."
+    - id: "KL-2"
+      text: "Directories are opened by full path, so a directory whose full path is 4,096 bytes or longer (Linux; 4,095 is the longest that works, probed) is unreachable and recorded as `Unreadable`. std has no stable openat-style directory API."
+    - id: "KL-3"
+      text: "Size is read at discovery time. F-003 must bound its own reads and open without following links (spec: Handoff to F-003)."
+
+# No cli section: F-002 is library-only (Q8).
+
+library:
+  public_api:
+    - crate: "cipherglass-core"
+      item: "#[non_exhaustive] pub struct Artifact { pub path: PathBuf, pub size: u64 } + pub fn Artifact::new(path: PathBuf, size: u64) -> Artifact"
+      notes: "`path` is relative to the discovery root. Derives Debug, Clone, PartialEq, Eq (LL-10)."
+    - crate: "cipherglass"
+      item: "pub fn discover(target: &Path, options: &DiscoveryOptions) -> Result<Discovery, DiscoveryError>"
+    - crate: "cipherglass"
+      item: "#[non_exhaustive] pub struct DiscoveryOptions { pub max_file_size: u64 }"
+      notes: "impl Default (32 MiB). Callers outside the crate build it from `default()` and then set fields."
+    - crate: "cipherglass"
+      item: "#[non_exhaustive] pub struct Discovery { pub root: PathBuf, pub artifacts: Vec<Artifact>, pub skipped: Vec<SkippedEntry> }"
+      notes: "`root` is the target as given."
+    - crate: "cipherglass"
+      item: "#[non_exhaustive] pub struct SkippedEntry { pub path: PathBuf, pub reason: SkipReason }"
+    - crate: "cipherglass"
+      item: "#[non_exhaustive] pub enum SkipReason { Symlink, TooLarge { size: u64, limit: u64 }, NotRegularFile, Unreadable { kind: io::ErrorKind, os_code: Option<i32> } }"
+    - crate: "cipherglass"
+      item: "#[non_exhaustive] pub enum DiscoveryError { NotFound { target: PathBuf }, NotADirectory { target: PathBuf }, Unreadable { target: PathBuf, kind: io::ErrorKind, os_code: Option<i32> } }"
+
+behavior:
+  steps:
+    - "Check the target (LL-1). On failure return the matching `DiscoveryError`."
+    - "Open the target's listing. On failure return `DiscoveryError::Unreadable`."
+    - "Push the target onto the stack. While the stack is not empty, pop a directory and list it (LL-6). A directory below the target that cannot be opened is recorded as `Unreadable`."
+    - "Classify each entry with the classification table in spec.md: push directories; record symlinks; return matching regular files within the limit; record oversized or non-regular matching files; record entries whose type or metadata cannot be read; ignore everything else."
+    - "Sort `artifacts` and `skipped` by path, then return `Discovery`."
+
+logic:
+  invariants:
+    - id: "INV-1"
+      text: "No symlink below the target is followed: no directory reached through a link is listed, and no link's target is stat'ed."
+    - id: "INV-2"
+      text: "Discovery never opens a file. It only lists directories and reads metadata."
+    - id: "INV-3"
+      text: "Every returned `Artifact` is a regular file (not a link) with an exactly matching extension and `size <= max_file_size`."
+    - id: "INV-4"
+      text: "`artifacts` and `skipped` are each sorted by `Path` ordering. No HashMap/HashSet iteration order reaches the output."
+    - id: "INV-5"
+      text: "A failure on any entry below the target never aborts the walk."
+    - id: "INV-6"
+      text: "No path appears twice across `artifacts` and `skipped` together."
+    - id: "INV-7"
+      text: "No new dependency of any kind. Cargo.toml files, Cargo.lock and the architecture test tables are unchanged."
+  error_conditions:
+    - id: "ERR-1"
+      condition: "Target missing, or a dangling target link."
+      handling: "`DiscoveryError::NotFound`."
+    - id: "ERR-2"
+      condition: "Target is a file, or a link to a file."
+      handling: "`DiscoveryError::NotADirectory`."
+    - id: "ERR-3"
+      condition: "Target metadata fails for another reason, or the target's listing cannot be opened."
+      handling: "`DiscoveryError::Unreadable` with kind and OS code."
+    - id: "ERR-4"
+      condition: "A directory below the target cannot be opened (including ENAMETOOLONG), or any listing fails part-way, or an entry's type or metadata cannot be read."
+      handling: "Recorded as `SkipReason::Unreadable`; the walk continues."
+
+filesystem:
+  reads_paths:
+    - path: "<target>/**"
+      reason: "Directory listings and entry metadata only. File content is never read (INV-2)."
+  writes_paths:
+    - path: "crates/cipherglass-core/src/**"
+      reason: "`Artifact` type."
+    - path: "crates/cipherglass/src/**"
+      reason: "`discover` and its option, result and error types, plus the unit test for LL-6."
+    - path: "crates/cipherglass/tests/discovery.rs"
+      reason: "Integration tests that build trees under CARGO_TARGET_TMPDIR at run time."
+    - path: "docs/features/F-002/**"
+      reason: "Spec, contract, gap analysis and SpecDrive state for this feature."
+  must_not_modify:
+    - "docs/system-overview.md"
+    - "docs/templates/**"
+    - "docs/adrs/**"
+    - "Cargo.toml"
+    - "crates/*/Cargo.toml"
+    - "Cargo.lock"
+    - "deny.toml"
+    - "crates/cipherglass/tests/architecture.rs"
+    - "tests/fixtures/**"   # no committed fixtures; trees are built at run time
+    - ".github/**"
+    - "<target>/**"         # discovery never writes to the tree it walks
+
+dependencies:
+  approved: []   # none added; std only
+  prohibited_always:
+    - "Any JavaScript engine or runtime (unchanged from F-001)."
+    - "Any crate for directory walking or temp dirs (e.g. walkdir, ignore, tempfile). std only (spec Constraints)."
+
+checks:
+  script: "scripts/check.sh"
+  runs: "locally only; unchanged from F-001"
+
+verification:
+  strategy: ["unit", "integration"]
+  fixtures:
+    - "None committed. Each integration test builds its own tree under `env!(\"CARGO_TARGET_TMPDIR\")` in a directory named after the test, removed first if it exists."
+  test_mechanisms:
+    - id: "M-1"
+      text: "Privilege probe: after `chmod 000` on a directory, call `fs::read_dir` on it. If it succeeds (root, or a filesystem that ignores mode bits), the test returns early. std cannot query the effective uid. Permissions are restored by a guard whose `Drop` runs `chmod 755`, so a failing test does not leave a directory that blocks the next run's setup."
+    - id: "M-2"
+      text: "FIFOs are created by running `mkfifo` through `std::process::Command` (std has no mkfifo). A non-zero exit or a missing command fails the test."
+    - id: "M-3"
+      text: "Over-limit chain: create a chain of at most 200 one-byte directory names, then rename directories near the top to 255-byte names until the bottom's full path is 4,096 bytes or longer. Each rename uses short paths. The working directory is never changed. The chain's length comes from long names, not depth, so `fs::remove_dir_all` (one open file descriptor per level) can delete it."
+    - id: "M-5"
+      text: "Deep chain cleanup: `fs::remove_dir_all` holds one file descriptor per level, and failed with EMFILE on a 2,500-deep chain under `ulimit -n 1024` (probed). T-13 therefore creates its chain with a loop of `create_dir` and removes it bottom-up with a loop of `remove_dir`, all on full paths under the limit. Setup does the same if a previous run left the chain behind."
+    - id: "M-6"
+      text: "T-13's full path is the tree root plus 3,800 bytes. The test asserts first that the root path is under 250 bytes, with a message saying the checkout path is too long, rather than failing in a confusing way."
+    - id: "M-4"
+      text: "Timeout: run `discover` on a spawned thread that sends its result over a channel; `recv_timeout(Duration::from_secs(10))` failing is a test failure."
+  test_cases:
+    - id: "T-1"
+      covers: ["HL-1", "LL-4"]
+      text: "Returns a.js, b.mjs, c.cjs, .hidden/d.js, node_modules/pkg/e.js and x.min.js with relative paths and correct sizes; a directory named dir.js is walked, not returned."
+    - id: "T-2"
+      covers: ["HL-2", "LL-4"]
+      text: "app.JS, a file named exactly .js, readme.md and a.ts are neither returned nor recorded."
+    - id: "T-3"
+      covers: ["HL-3", "INV-4", "INV-6"]
+      text: "cfg(unix). A tree with at least 50 artifacts spread over several directories, plus a `Symlink`, a `TooLarge`, a `NotRegularFile` (M-2) and, where M-1 allows, an `Unreadable` entry. Two runs are equal (`==`), both lists are sorted, and no path is repeated. The 50 entries make it very unlikely that the filesystem's listing order happens to be sorted already, so a missing sort fails the test."
+    - id: "T-4"
+      covers: ["INV-1", "HL-2"]
+      text: "cfg(unix). Links to a .js file, to a directory containing .js files outside the target, and a dangling link are each recorded as `Symlink`; nothing behind them is returned. A link-to-self loop (`a -> .`) terminates."
+    - id: "T-5"
+      covers: ["LL-5", "INV-3"]
+      text: "With `max_file_size = 10`: a 10-byte .js file is returned; an 11-byte one is `TooLarge { size: 11, limit: 10 }`. A 1 MiB non-matching file is not recorded."
+    - id: "T-6"
+      covers: ["LL-5"]
+      text: "`DiscoveryOptions::default().max_file_size == 33_554_432`."
+    - id: "T-7"
+      covers: ["HL-4", "INV-5", "ERR-4"]
+      text: "cfg(unix), M-1. A `chmod 000` directory is recorded as `Unreadable` with kind PermissionDenied, and .js files in a sibling directory are returned."
+    - id: "T-8"
+      covers: ["INV-2", "HL-2"]
+      text: "cfg(unix), M-2, M-4. A FIFO named p.js is recorded as `NotRegularFile` and `discover` returns within the timeout."
+    - id: "T-9"
+      covers: ["INV-2", "INV-3"]
+      text: "cfg(unix). A `chmod 000` file named secret.js is still returned with its size (metadata needs no read permission), showing content is never opened. No privilege probe is needed: the result is the same as root."
+    - id: "T-10"
+      covers: ["LL-1", "ERR-1", "ERR-2", "ERR-3"]
+      text: "A missing target and (cfg(unix)) a dangling target link give `NotFound`; a file and (cfg(unix)) a link to a file give `NotADirectory`; (cfg(unix), M-1) a `chmod 000` target gives `Unreadable`; (cfg(target_os = \"linux\")) a target that is a self-referencing link gives `Unreadable` with `os_code == Some(40)` (ELOOP). `ErrorKind::FilesystemLoop` is unstable in rustc 1.98, so the kind is not asserted."
+    - id: "T-11"
+      covers: ["LL-1"]
+      text: "cfg(unix). A target that is a symlink to a directory is walked, and `root` equals the link path as given."
+    - id: "T-12"
+      covers: ["LL-9"]
+      text: "cfg(target_os = \"linux\"). A file named with bytes `b\"bad\\xff.js\"` is returned with those exact bytes (`OsStrExt::as_bytes`)."
+    - id: "T-13"
+      covers: ["LL-2"]
+      text: "cfg(target_os = \"linux\"), M-5, M-6. A chain of 1,900 one-byte nested directories with deep.js at the bottom returns deep.js."
+    - id: "T-14"
+      covers: ["ERR-4", "KL-2", "INV-5"]
+      text: "cfg(target_os = \"linux\"), M-3. Exactly one `Unreadable` entry, with `os_code == Some(36)` (ENAMETOOLONG), and kind InvalidFilename (both probed), is recorded inside the over-limit chain, and a .js file in a sibling of the chain is returned."
+    - id: "T-15"
+      covers: ["LL-6", "LL-7"]
+      text: "Unit test in crates/cipherglass/src: a synthetic listing of [Ok(entry), Err(io::Error), Ok(entry)] keeps the first entry, drops the third, and records the directory once as `Unreadable` with the error's kind and OS code. The target case records an empty path."
+    - id: "T-16"
+      covers: ["HL-1"]
+      text: "An empty target gives `Ok` with empty `artifacts` and `skipped`."
+    - id: "T-18"
+      covers: ["LL-10"]
+      text: "An integration test builds an `Artifact` with `Artifact::new` and reads both fields. That it compiles from outside cipherglass-core is the check."
+    - id: "T-17"
+      covers: ["INV-7"]
+      text: "The existing architecture test (F-001 T-1) passes unchanged."
+  coverage_expectations:
+    code: "statement"
+    notes: "Every row of the classification table and every DiscoveryError variant is hit by a test."
+
+requirements_map:
+  REQ-011: "HL-1; T-1, T-16"
+  REQ-010: "HL-1, LL-4; T-1, T-2 (extension criterion only; parseability is F-003)"
+  REQ-030: "HL-1; T-1"
+  REQ-004: "HL-3, INV-4; T-3"
+  REQ-005: "HL-3, INV-4; T-3"
+  REQ-022: "INV-1, INV-2; T-4, T-8, T-9, T-13, T-14"
+
+acceptance_criteria_map:
+  AC-1: "T-1"
+  AC-2: "T-2"
+  AC-3: "T-3"
+  AC-4: "T-4"
+  AC-5: "T-5, T-6"
+  AC-6: "T-7"
+  AC-7: "T-8"
+  AC-8: "T-10"
+  AC-9: "T-11"
+  AC-10: "T-12"
+  AC-11: "T-13, T-14"
+  AC-12: "T-17; review that must_not_modify paths are unchanged"
+  AC-13: "scripts/check.sh"
+  AC-14: "T-15"
+
+reviews:
+  required: true
+  checklist:
+    - "Spec and contract agree on behavior, types, and invariants."
+    - "Every requirements.system entry is traced to a test."
+    - "Threat and impact assessment is accurate."
+    - "Invariants are enforced in code and covered by tests."
+    - "No call in the discovery code opens a file or follows a link below the target (fs::metadata only on the target, File::open nowhere)."
+    - "No third-party parser types leak past the parser adapter."
+    - "Output is deterministic across repeated runs."
+    - "No new crate dependencies; Cargo.toml files and Cargo.lock unchanged."
+    - "Tests that probe for privilege (M-1) restore permissions before cleanup."
+    - "Every writes_paths entry has a justified reason."
+  status:
+    reviewed_by: ""
+    reviewed_at: ""
+
+ai_instructions:
+  - "Treat this contract as the source of truth."
+  - "Prioritize correctness and safety over cleverness."
+  - "Do not weaken invariants or lower safety properties."
+  - "Do not add dependencies of any kind. Use std only."
+  - "Do not modify docs/system-overview.md, ADRs, or templates."
+  - "Every writes_paths entry must include a justified reason."
+  - "If anything is ambiguous, implement the safest conservative behavior: record and skip rather than follow, open, or guess."
